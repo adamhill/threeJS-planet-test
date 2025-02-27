@@ -21,6 +21,9 @@ class Atmosphere {
             sunPosition: options.sunPosition || new THREE.Vector3(50, 20, 50).normalize()
         };
         
+        // Current detail level
+        this.currentDetailFactor = 1.0;
+        
         this.init();
     }
     
@@ -52,6 +55,37 @@ class Atmosphere {
         
         this.mesh = new THREE.Mesh(atmosphereGeometry, this.atmosphereMaterial);
         this.scene.add(this.mesh);
+    }
+    
+    /**
+     * Update the atmosphere resolution based on detail factor
+     * @param {number} detailFactor - Detail factor between 0.0 and 1.0
+     */
+    updateResolution(detailFactor) {
+        // Only update if detail factor changed significantly
+        if (Math.abs(detailFactor - this.currentDetailFactor) < 0.1) return;
+        
+        this.currentDetailFactor = detailFactor;
+        
+        // Calculate resolution based on detail factor
+        const minResolution = 64;
+        const maxResolution = 256;
+        
+        // Calculate resolution - ensure it's a power of 2
+        const resolutionRange = Math.log2(maxResolution) - Math.log2(minResolution);
+        const resolution = Math.pow(2, Math.log2(minResolution) + resolutionRange * detailFactor);
+        
+        // Round to nearest power of 2
+        const roundedResolution = Math.pow(2, Math.round(Math.log2(resolution)));
+        
+        // Only recreate if resolution changed significantly
+        if (Math.abs(roundedResolution - 256) > 16) {
+            // Remove old mesh
+            this.dispose();
+            
+            // Reinitialize with new resolution
+            this.init();
+        }
     }
     
     /**

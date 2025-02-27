@@ -44,6 +44,12 @@ class Controls {
         this.currentPlanetRotation = new THREE.Quaternion();
         this.rotating = true;
         this.isDaytime = true;
+        
+        // CLOD system variables
+        this.lastDetailFactor = 1.0;
+        this.lastDistance = 15.0;
+        this.detailUpdateThrottled = this.throttle(this.updatePlanetDetail.bind(this), 500);
+        this.isUpdatingDetail = false;
 
         // Bind methods to preserve context
         this.handleKeyDown = this.handleKeyDown.bind(this);
@@ -52,6 +58,7 @@ class Controls {
         this.handleMouseUp = this.handleMouseUp.bind(this);
         this.handleWheel = this.handleWheel.bind(this);
         this.handleResize = this.handleResize.bind(this);
+        this.trackCameraDistance = this.trackCameraDistance.bind(this);
         
         // Initialize controls
         this.initializeControls();
@@ -232,6 +239,131 @@ class Controls {
             this.config.minZoom, 
             Math.min(this.camera.position.z + zoomAmount, this.config.maxZoom)
         );
+        
+        // Track camera distance for LOD
+        this.trackCameraDistance();
+    }
+    
+    /**
+     * Track camera distance and update detail level if needed
+     */
+    trackCameraDistance() {
+        const distance = this.camera.position.distanceTo(new THREE.Vector3(0, 0, 0));
+        const detailFactor = this.getDetailFactorForDistance(distance);
+        
+        // Only log when distance changes significantly
+        if (Math.abs(distance - this.lastDistance) > 0.5) {
+            console.log(`Camera distance: ${distance.toFixed(2)}, Detail factor: ${detailFactor.toFixed(2)}`);
+            this.lastDistance = distance;
+        }
+        
+        // Only update if detail factor changed significantly (avoid constant small updates)
+        if (Math.abs(detailFactor - this.lastDetailFactor) > 0.05 && !this.isUpdatingDetail) {
+            this.lastDetailFactor = detailFactor;
+            this.detailUpdateThrottled(detailFactor);
+        }
+    }
+    
+    /**
+     * Calculate detail factor based on camera distance
+     * @param {number} distance - Distance from camera to planet center
+     * @returns {number} Detail factor between 0.0 (far) and 1.0 (close)
+     */
+    getDetailFactorForDistance(distance) {
+        // Map distance to a detail factor between 0.0 (far) and 1.0 (close)
+        const minDistance = 8;  // Full detail at this distance
+        const maxDistance = 18; // Minimum detail at this distance
+        
+        // Clamp and invert the normalized distance to get detail factor
+        return 1.0 - Math.min(1.0, Math.max(0.0, (distance - minDistance) / (maxDistance - minDistance)));
+    }
+    
+    /**
+     * Update planet detail based on detail factor
+     * @param {number} detailFactor - Detail factor between 0.0 and 1.0
+     */
+    updatePlanetDetail(detailFactor) {
+        console.log(`Updating planet detail to factor: ${detailFactor.toFixed(2)}`);
+        if (this.isUpdatingDetail) return;
+        this.isUpdatingDetail = true;
+        
+        // Show loading indicator
+        this.showLoadingIndicator("Updating terrain...");
+        
+        // Use setTimeout to allow UI to update before heavy computation
+        setTimeout(() => {
+            if (this.planet) {
+                this.planet.regenerateWithDetailFactor(detailFactor);
+            }
+            
+            // Also update related components with appropriate detail
+            if (this.water) {
+                this.water.updateResolution(detailFactor);
+            }
+            if (this.clouds) {
+                this.clouds.updateResolution(detailFactor);
+            }
+            if (this.atmosphere) {
+                this.atmosphere.updateResolution(detailFactor);
+            }
+            
+            // Remove loading indicator
+            this.hideLoadingIndicator();
+            this.isUpdatingDetail = false;
+        }, 10);
+    }
+    
+    /**
+     * Show loading indicator
+     * @param {string} message - Message to display
+     */
+    showLoadingIndicator(message) {
+        // Create loading indicator if it doesn't exist
+        if (!document.getElementById('loading-indicator')) {
+            const loadingIndicator = document.createElement('div');
+            loadingIndicator.id = 'loading-indicator';
+            loadingIndicator.textContent = message;
+            loadingIndicator.style.position = 'absolute';
+            loadingIndicator.style.top = '50%';
+            loadingIndicator.style.left = '50%';
+            loadingIndicator.style.transform = 'translate(-50%, -50%)';
+            loadingIndicator.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+            loadingIndicator.style.color = 'white';
+            loadingIndicator.style.padding = '15px 20px';
+            loadingIndicator.style.borderRadius = '8px';
+            loadingIndicator.style.fontFamily = 'Arial, sans-serif';
+            loadingIndicator.style.zIndex = '100';
+            document.body.appendChild(loadingIndicator);
+        }
+    }
+    
+    /**
+     * Hide loading indicator
+     */
+    hideLoadingIndicator() {
+        const loadingIndicator = document.getElementById('loading-indicator');
+        if (loadingIndicator) {
+            document.body.removeChild(loadingIndicator);
+        }
+    }
+    
+    /**
+     * Throttle function to limit how often a function can be called
+     * @param {Function} func - Function to throttle
+     * @param {number} limit - Minimum time between calls in ms
+     * @returns {Function} Throttled function
+     */
+    throttle(func, limit) {
+        let inThrottle;
+        return function() {
+            const args = arguments;
+            const context = this;
+            if (!inThrottle) {
+                func.apply(context, args);
+                inThrottle = true;
+                setTimeout(() => inThrottle = false, limit);
+            }
+        };
     }
     
     /**
@@ -364,6 +496,9 @@ class Controls {
         if (this.rotating && this.planet && this.planet.getMesh()) {
             this.planet.getMesh().rotation.y += this.config.rotationSpeed;
         }
+
+        // Track camera distance for LOD updates
+        this.trackCameraDistance();
         
         // Smooth interpolation for manual rotation
         if (this.planet && this.planet.getMesh()) {

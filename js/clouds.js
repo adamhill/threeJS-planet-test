@@ -24,6 +24,9 @@ class Clouds {
             resolution: options.resolution || 256
         };
         
+        // Current detail level
+        this.currentDetailFactor = 1.0;
+        
         this.time = 0;
         this.rotationSpeed = options.rotationSpeed || 0.02;
         this.init();
@@ -120,6 +123,37 @@ class Clouds {
         
         if (this.mesh) {
             this.mesh.rotation.y += deltaTime * this.rotationSpeed;
+        }
+    }
+    
+    /**
+     * Update the clouds resolution based on detail factor
+     * @param {number} detailFactor - Detail factor between 0.0 and 1.0
+     */
+    updateResolution(detailFactor) {
+        // Only update if detail factor changed significantly
+        if (Math.abs(detailFactor - this.currentDetailFactor) < 0.1) return;
+        
+        this.currentDetailFactor = detailFactor;
+        
+        // Calculate resolution based on detail factor
+        const minResolution = 64;
+        const maxResolution = 256;
+        
+        // Calculate resolution - ensure it's a power of 2
+        const resolutionRange = Math.log2(maxResolution) - Math.log2(minResolution);
+        const resolution = Math.pow(2, Math.log2(minResolution) + resolutionRange * detailFactor);
+        
+        // Round to nearest power of 2
+        const roundedResolution = Math.pow(2, Math.round(Math.log2(resolution)));
+        
+        // Only recreate if resolution changed significantly
+        if (Math.abs(roundedResolution - this.config.resolution) > 16) {
+            // Update config
+            this.config.resolution = roundedResolution;
+            
+            // Regenerate with new resolution
+            this.regenerate({ resolution: roundedResolution });
         }
     }
     
