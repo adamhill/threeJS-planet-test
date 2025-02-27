@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Realistic Procedurally Generated 3D Planet</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden;
+            background-color: #000;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: Arial, sans-serif;
+            z-index: 10;
+            max-width: 250px;
+        }
+        #controls h2 {
+            margin-top: 0;
+            font-size: 18px;
+            border-bottom: 1px solid rgba(255,255,255,0.3);
+            padding-bottom: 5px;
+        }
+        #controls p {
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        button {
+            background-color: #2a6496;
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #1c4670;
+        }
+        #dayNightToggle {
+            margin-top: 10px;
+        }
+        #terrainControls {
+            margin-top: 15px;
+        }
+        .slider-container {
+            margin: 8px 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .slider-container label {
+            font-size: 13px;
+            margin-bottom: 3px;
+        }
+        .slider-container input {
+            width: 100%;
+        }
+        .slider-value {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <h2>Planet Controls</h2>
+        <p>↑/↓: Adjust Rotation Speed</p>
+        <p>Mouse Drag: Rotate View</p>
+        <p>Scroll: Zoom In/Out</p>
+        <p>Space: Pause/Resume Rotation</p>
+        <button id="resetCamera">Reset Camera</button>
+        <div id="dayNightToggle">
+            <button id="toggleDayNight">Toggle Day/Night</button>
+        </div>
+        <div id="terrainControls">
+            <h3 style="margin: 10px 0 5px 0; font-size: 15px; border-top: 1px solid rgba(255,255,255,0.3); padding-top: 10px;">Terrain Controls</h3>
+            <div class="slider-container">
+                <label for="heightScale">Terrain Height</label>
+                <input type="range" id="heightScale" min="0.1" max="5.0" step="0.1" value="2.5">
+                <div class="slider-value" id="heightScaleValue">2.5</div>
+            </div>
+            <div class="slider-container">
+                <label for="noiseScale">Terrain Detail</label>
+                <input type="range" id="noiseScale" min="0.1" max="3.0" step="0.1" value="1.0">
+                <div class="slider-value" id="noiseScaleValue">1.0</div>
+            </div>
+            <div class="slider-container">
+                <label for="mountainScale">Mountain Scale</label>
+                <input type="range" id="mountainScale" min="0.5" max="5.0" step="0.1" value="2.0">
+                <div class="slider-value" id="mountainScaleValue">2.0</div>
+            </div>
+            <div class="slider-container">
+                <label for="waterLevel">Water Level</label>
+                <input type="range" id="waterLevel" min="-0.5" max="0.5" step="0.05" value="0.1">
+                <div class="slider-value" id="waterLevelValue">0.1</div>
+            </div>
+            <button id="regeneratePlanet">Regenerate Planet</button>
+        </div>
+    </div>
+
+    <!-- External libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+    
+    <!-- Shader code -->
+    <script src="js/shaders.js"></script>
+    
+    <!-- Application modules -->
+    <script src="js/stars.js"></script>
+    <script src="js/atmosphere.js"></script>
+    <script src="js/water.js"></script>
+    <script src="js/clouds.js"></script>
+    <script src="js/planet.js"></script>
+    <script src="js/controls.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

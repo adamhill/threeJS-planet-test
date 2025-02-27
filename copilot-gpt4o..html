@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedurally Generated 3D Planet</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+</head>
+<body>
+    <script>
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Planet Geometry
+        const geometry = new THREE.SphereGeometry(5, 64, 64);
+        const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+        const planet = new THREE.Mesh(geometry, material);
+        scene.add(planet);
+
+        // Add noise to the planet's surface for terrain
+        const simplex = new SimplexNoise();
+        const vertices = geometry.attributes.position.array;
+        for (let i = 0; i < vertices.length; i += 3) {
+            const x = vertices[i];
+            const y = vertices[i + 1];
+            const z = vertices[i + 2];
+            const noise = simplex.noise3D(x * 0.1, y * 0.1, z * 0.1);
+            vertices[i] += noise * 0.5;
+            vertices[i + 1] += noise * 0.5;
+            vertices[i + 2] += noise * 0.5;
+        }
+        geometry.attributes.position.needsUpdate = true;
+
+        // Biomes and Textures
+        const colors = [];
+        for (let i = 0; i < vertices.length; i += 3) {
+            const y = vertices[i + 1];
+            let color;
+            if (y > 2) {
+                color = new THREE.Color(0xffffff); // Snow
+            } else if (y > 1) {
+                color = new THREE.Color(0x00ff00); // Grass
+            } else if (y > 0) {
+                color = new THREE.Color(0xffff00); // Sand
+            } else {
+                color = new THREE.Color(0x0000ff); // Water
+            }
+            colors.push(color.r, color.g, color.b);
+        }
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        material.vertexColors = true;
+
+        // Atmosphere
+        const atmosphereGeometry = new THREE.SphereGeometry(5.1, 64, 64);
+        const atmosphereMaterial = new THREE.ShaderMaterial({
+            vertexShader: `
+                varying vec3 vNormal;
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                varying vec3 vNormal;
+                void main() {
+                    float intensity = pow(0.5 - dot(vNormal, vec3(0, 0, 1.0)), 2.0);
+                    gl_FragColor = vec4(0.3, 0.6, 1.0, 1.0) * intensity;
+                }
+            `,
+            blending: THREE.AdditiveBlending,
+            side: THREE.BackSide
+        });
+        const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+        scene.add(atmosphere);
+
+        // Water
+        const waterGeometry = new THREE.SphereGeometry(5.05, 64, 64);
+        const waterMaterial = new THREE.MeshStandardMaterial({
+            color: 0x0000ff,
+            transparent: true,
+            opacity: 0.6,
+            roughness: 0.5,
+            metalness: 0.5
+        });
+        const water = new THREE.Mesh(waterGeometry, waterMaterial);
+        scene.add(water);
+
+        // Clouds
+        const cloudGeometry = new THREE.SphereGeometry(5.2, 64, 64);
+        const cloudMaterial = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.5
+        });
+        const clouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
+        scene.add(clouds);
+
+        // Lighting
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 3, 5);
+        scene.add(directionalLight);
+
+        const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
+        scene.add(ambientLight);
+
+        camera.position.z = 15;
+
+        // Rotation control
+        let rotationSpeed = 0.001;
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'ArrowUp') {
+                rotationSpeed += 0.001;
+            } else if (event.key === 'ArrowDown') {
+                rotationSpeed -= 0.001;
+            }
+        });
+
+        // Camera and Interaction
+        let isDragging = false;
+        let previousMousePosition = {
+            x: 0,
+            y: 0
+        };
+
+        renderer.domElement.addEventListener('mousedown', (event) => {
+            isDragging = true;
+        });
+
+        renderer.domElement.addEventListener('mousemove', (event) => {
+            if (isDragging) {
+                const deltaMove = {
+                    x: event.offsetX - previousMousePosition.x,
+                    y: event.offsetY - previousMousePosition.y
+                };
+
+                const deltaRotationQuaternion = new THREE.Quaternion()
+                    .setFromEuler(new THREE.Euler(
+                        toRadians(deltaMove.y * 1),
+                        toRadians(deltaMove.x * 1),
+                        0,
+                        'XYZ'
+                    ));
+
+                planet.quaternion.multiplyQuaternions(deltaRotationQuaternion, planet.quaternion);
+            }
+
+            previousMousePosition = {
+                x: event.offsetX,
+                y: event.offsetY
+            };
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        function toRadians(angle) {
+            return angle * (Math.PI / 180);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            planet.rotation.y += rotationSpeed;
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>

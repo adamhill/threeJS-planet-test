@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Realistic Procedurally Generated 3D Planet</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden;
+            background-color: #000;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: Arial, sans-serif;
+            z-index: 10;
+            max-width: 250px;
+        }
+        #controls h2 {
+            margin-top: 0;
+            font-size: 18px;
+            border-bottom: 1px solid rgba(255,255,255,0.3);
+            padding-bottom: 5px;
+        }
+        #controls p {
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        button {
+            background-color: #2a6496;
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #1c4670;
+        }
+        #dayNightToggle {
+            margin-top: 10px;
+        }
+        #terrainControls {
+            margin-top: 15px;
+        }
+        .slider-container {
+            margin: 8px 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .slider-container label {
+            font-size: 13px;
+            margin-bottom: 3px;
+        }
+        .slider-container input {
+            width: 100%;
+        }
+        .slider-value {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 2px;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/simplex-noise/2.4.0/simplex-noise.min.js"></script>
+</head>
+<body>
+    <div id="controls">
+        <h2>Planet Controls</h2>
+        <p>↑/↓: Adjust Rotation Speed</p>
+        <p>Mouse Drag: Rotate View</p>
+        <p>Scroll: Zoom In/Out</p>
+        <p>Space: Pause/Resume Rotation</p>
+        <button id="resetCamera">Reset Camera</button>
+        <div id="dayNightToggle">
+            <button id="toggleDayNight">Toggle Day/Night</button>
+        </div>
+        <div id="terrainControls">
+            <h3 style="margin: 10px 0 5px 0; font-size: 15px; border-top: 1px solid rgba(255,255,255,0.3); padding-top: 10px;">Terrain Controls</h3>
+            <div class="slider-container">
+                <label for="heightScale">Terrain Height</label>
+                <input type="range" id="heightScale" min="0.1" max="5.0" step="0.1" value="2.5">
+                <div class="slider-value" id="heightScaleValue">2.5</div>
+            </div>
+            <div class="slider-container">
+                <label for="noiseScale">Terrain Detail</label>
+                <input type="range" id="noiseScale" min="0.1" max="3.0" step="0.1" value="1.0">
+                <div class="slider-value" id="noiseScaleValue">1.0</div>
+            </div>
+            <div class="slider-container">
+                <label for="mountainScale">Mountain Scale</label>
+                <input type="range" id="mountainScale" min="0.5" max="5.0" step="0.1" value="2.0">
+                <div class="slider-value" id="mountainScaleValue">2.0</div>
+            </div>
+            <div class="slider-container">
+                <label for="waterLevel">Water Level</label>
+                <input type="range" id="waterLevel" min="-0.5" max="0.5" step="0.05" value="0.1">
+                <div class="slider-value" id="waterLevelValue">0.1</div>
+            </div>
+            <button id="regeneratePlanet">Regenerate Planet</button>
+        </div>
+    </div>
+    <script>
+        // Initialize Three.js Scene
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // Planet Configuration
+        const planetRadius = 5;
+        const terrainDetail = 256; // Higher value for more detailed terrain
+        let waterLevel = 0.1; // Water level threshold - will be controlled by slider
+        
+        // Noise configurations
+        let baseNoiseScale = 0.4;
+        let mountainNoiseScale = 0.8;
+        let detailNoiseScale = 3.0;
+        let biomeNoiseScale = 0.3;
+        
+        // Height scale for terrain features
+        let heightScale = 2.5; // Increased for more pronounced terrain
+
+        // Create initial objects
+        const simplex = new SimplexNoise();
+        let planet, water, clouds, atmosphere;
+        let atmosphereMaterial;
+        // Function to generate the planet geometry based on current parameters
+        function generatePlanet() {
+            // Remove existing planet objects if they exist
+            if (planet) scene.remove(planet);
+            if (water) scene.remove(water);
+            if (clouds) scene.remove(clouds);
+            if (atmosphere) scene.remove(atmosphere);
+
+            // Create Planet Base Geometry
+            const planetGeometry = new THREE.SphereGeometry(planetRadius, terrainDetail, terrainDetail);
+            const planetMaterial = new THREE.MeshStandardMaterial({ 
+                vertexColors: true, 
+                roughness: 0.8, 
+                metalness: 0.1,
+            });
+            
+            // Update noise scale values based on slider inputs
+            const noiseScaleMultiplier = parseFloat(document.getElementById('noiseScale').value);
+            baseNoiseScale = 0.4 * noiseScaleMultiplier;
+            mountainNoiseScale = 0.8 * noiseScaleMultiplier;
+            detailNoiseScale = 3.0 * noiseScaleMultiplier;
+            biomeNoiseScale = 0.3 * noiseScaleMultiplier;
+            
+            // Update height scale based on slider
+            heightScale = parseFloat(document.getElementById('heightScale').value);
+            
+            // Update mountain scale based on slider
+            const mountainScaleValue = parseFloat(document.getElementById('mountainScale').value);
+            
+            // Update water level based on slider
+            waterLevel = parseFloat(document.getElementById('waterLevel').value);
+
+            // Generate terrain with vertices and colors
+            const vertices = planetGeometry.attributes.position.array;
+            const colors = [];
+        
+            // Apply noise to vertices
+            for (let i = 0; i < vertices.length; i += 3) {
+                const x = vertices[i];
+                const y = vertices[i + 1];
+                const z = vertices[i + 2];
+                
+                // Normalize position for consistent noise sampling
+                const distance = Math.sqrt(x * x + y * y + z * z);
+                const nx = x / distance;
+                const ny = y / distance;
+                const nz = z / distance;
+                
+                // Calculate latitude for biome distribution (0 at equator, 1 at poles)
+                const latitude = Math.abs(Math.asin(ny) / (Math.PI / 2));
+                
+                // Multi-octave noise for varied terrain (Minecraft-inspired approach)
+                // Base continent shapes
+                const continentNoise = simplex.noise3D(nx * 0.2, ny * 0.2, nz * 0.2);
+                
+                // Medium-scale terrain features
+                const mediumNoise = simplex.noise3D(nx * baseNoiseScale, ny * baseNoiseScale, nz * baseNoiseScale);
+                
+                // Large mountains and valleys
+                const mountainNoise = simplex.noise3D(nx * mountainNoiseScale, ny * mountainNoiseScale, nz * mountainNoiseScale);
+                
+                // Small details and roughness
+                const detailNoise = simplex.noise3D(nx * detailNoiseScale, ny * detailNoiseScale, nz * detailNoiseScale);
+                
+                // Biome variation noise
+                const biomeNoise = simplex.noise3D(nx * biomeNoiseScale, ny * biomeNoiseScale, nz * biomeNoiseScale) * 0.4;
+                
+                // Create more pronounced mountain ranges
+                let mountainRangeNoise = Math.pow(Math.abs(mountainNoise), 0.8) * mountainScaleValue;
+                if (mountainNoise < 0) mountainRangeNoise *= -1;
+                
+                // Combined multi-octave noise for complex terrain
+                // Weight the different noise layers for natural-looking terrain
+                const combinedNoise = continentNoise * 0.4 + mediumNoise * 0.2 + mountainRangeNoise * 0.35 + detailNoise * 0.05;
+                
+                // Apply temperature variation based on latitude
+                const temperatureVariation = Math.pow(1 - latitude, 1.2) + biomeNoise * 0.4;
+                
+                // Apply height variation - significantly increased for more dramatic terrain
+                const heightVariation = combinedNoise * heightScale;
+                
+                // Apply height variation to vertex - increased multiplier for more dramatic effect
+                vertices[i] = x * (1 + heightVariation * 0.25);
+                vertices[i + 1] = y * (1 + heightVariation * 0.25);
+                vertices[i + 2] = z * (1 + heightVariation * 0.25);
+                
+                // Calculate elevation from center for biome determination
+                const newDistance = Math.sqrt(
+                    vertices[i] * vertices[i] + 
+                    vertices[i + 1] * vertices[i + 1] + 
+                    vertices[i + 2] * vertices[i + 2]
+                );
+                
+                const elevationFromCenter = newDistance - planetRadius;
+                
+                // Biome color selection based on elevation, latitude, and noise
+                let color;
+                
+                // Different biome types
+                if (elevationFromCenter < -0.2) {
+                    // Deep ocean
+                    color = new THREE.Color(0x001a33);
+                } else if (elevationFromCenter < waterLevel) {
+                    // Shallow water
+                    const depthFactor = (waterLevel - elevationFromCenter) / (waterLevel + 0.2);
+                    color = new THREE.Color(0x0077be).lerp(new THREE.Color(0x00a1d6), 1 - depthFactor);
+                } else if (elevationFromCenter < waterLevel + 0.1) {
+                    // Beach/coast
+                    color = new THREE.Color(0xdeb887);
+                } else if (elevationFromCenter < waterLevel + 0.3) {
+                    // Low elevation terrain varies by temperature (latitude)
+                    if (temperatureVariation > 0.7) {
+                        // Tropical/warm regions
+                        color = new THREE.Color(0x228b22); // Forest green
+                    } else if (temperatureVariation > 0.4) {
+                        // Temperate regions
+                        color = new THREE.Color(0x95a167); // Mixed grassland
+                    } else {
+                        // Cold regions
+                        color = new THREE.Color(0xa69374); // Tundra
+                    }
+                } else if (elevationFromCenter < waterLevel + 0.7) {
+                    // Mid elevation terrain
+                    if (temperatureVariation > 0.6) {
+                        color = new THREE.Color(0x156734); // Dense forest
+                    } else if (temperatureVariation > 0.4) {
+                        color = new THREE.Color(0x6a7f3c); // Highland regions
+                    } else {
+                        color = new THREE.Color(0x8e9e82); // Alpine regions
+                    }
+                } else if (elevationFromCenter < waterLevel + 1.0) {
+                    // High elevation
+                    if (temperatureVariation > 0.7) {
+                        color = new THREE.Color(0x968772); // Rocky mountains in warm regions
+                    } else {
+                        color = new THREE.Color(0xc9c2b6); // Rocky mountain
+                    }
+                } else {
+                    // Peaks (snowy or rocky based on temperature)
+                    if (temperatureVariation > 0.8) {
+                        color = new THREE.Color(0xa09e8c); // High warm peaks
+                    } else {
+                        color = new THREE.Color(0xf8f8ff); // Snow
+                    }
+                }
+                
+                // Slight color variation for more natural look
+                const variationNoise = simplex.noise3D(nx * 10, ny * 10, nz * 10) * 0.05;
+                color.r = Math.max(0, Math.min(1, color.r + variationNoise));
+                color.g = Math.max(0, Math.min(1, color.g + variationNoise));
+                color.b = Math.max(0, Math.min(1, color.b + variationNoise));
+                
+                colors.push(color.r, color.g, color.b);
+            }
+            
+            // Update geometry and apply colors
+            planetGeometry.attributes.position.needsUpdate = true;
+            planetGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            planetGeometry.computeVertexNormals();
+            
+            // Create planet mesh
+            planet = new THREE.Mesh(planetGeometry, planetMaterial);
+            scene.add(planet);
+            
+            // Water Layer
+            const waterGeometry = new THREE.SphereGeometry(planetRadius + waterLevel - 0.05, 128, 128);
+            
+            // Advanced water shader material
+            const waterMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 },
+                    waterColor: { value: new THREE.Color(0x00a1d6) },
+                    deepWaterColor: { value: new THREE.Color(0x001a33) },
+                    sunDirection: { value: new THREE.Vector3(1, 0.5, 1).normalize() },
+                },
+                vertexShader: `
+                    uniform float time;
+                    varying vec3 vPosition;
+                    varying vec3 vNormal;
+                    
+                    void main() {
+                        // Apply gentle wave motion
+                        vec3 newPosition = position;
+                        
+                        // Calculate wave effect based on position and time
+                        float waveX = sin(position.x * 2.0 + time * 0.5) * 0.01;
+                        float waveZ = cos(position.z * 2.0 + time * 0.7) * 0.01;
+                        
+                        // Apply waves to y coordinate
+                        newPosition.y += waveX + waveZ;
+                        
+                        // Pass values to fragment shader
+                        vPosition = newPosition;
+                        vNormal = normalize(normalMatrix * normal);
+                        
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 waterColor;
+                    uniform vec3 deepWaterColor;
+                    uniform vec3 sunDirection;
+                    varying vec3 vPosition;
+                    varying vec3 vNormal;
+                    
+                    void main() {
+                        // Fresnel effect for water edge transparency
+                        vec3 viewDirection = normalize(cameraPosition - vPosition);
+                        float fresnel = 0.5 + 0.5 * pow(1.0 - dot(viewDirection, vNormal), 3.0);
+                        
+                        // Add specular highlight for sun reflection
+                        vec3 halfDir = normalize(sunDirection + viewDirection);
+                        float specular = pow(max(dot(halfDir, vNormal), 0.0), 100.0) * 0.5;
+                        
+                        // Mix shallow and deep water colors
+                        vec3 finalColor = mix(waterColor, deepWaterColor, fresnel * 0.7);
+                        finalColor += specular * vec3(1.0, 1.0, 1.0);
+                        
+                        gl_FragColor = vec4(finalColor, 0.7); // Semi-transparent water
+                    }
+                `,
+                transparent: true,
+                side: THREE.DoubleSide,
+            });
+            
+            water = new THREE.Mesh(waterGeometry, waterMaterial);
+            scene.add(water);
+            
+            // Atmosphere Layer
+            const atmosphereGeometry = new THREE.SphereGeometry(planetRadius + 1.2, 128, 128);
+            // Store atmosphereMaterial globally for the day/night toggle
+            atmosphereMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    sunPosition: { value: new THREE.Vector3(50, 20, 50).normalize() },
+                    planetRadius: { value: planetRadius },
+                    atmosphereRadius: { value: planetRadius + 1.2 },
+                    dayColor: { value: new THREE.Color(0x3b95d3) },
+                    nightColor: { value: new THREE.Color(0x0c1445) },
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vPosition;
+                    
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 sunPosition;
+                    uniform float planetRadius;
+                    uniform float atmosphereRadius;
+                    uniform vec3 dayColor;
+                    uniform vec3 nightColor;
+                    
+                    varying vec3 vNormal;
+                    varying vec3 vPosition;
+                    
+                    void main() {
+                        // Direction from fragment to camera
+                        vec3 viewDirection = normalize(cameraPosition - vPosition);
+                        
+                        // Direction from fragment to sun
+                        float sunInfluence = max(dot(vNormal, sunPosition), 0.0);
+                        
+                        // Atmospheric scattering effect (limb darkening)
+                        float atmosphereIntensity = pow(1.0 - abs(dot(viewDirection, vNormal)), 5.0);
+                        
+                        // Mix day and night colors based on sun position
+                        vec3 atmosphereColor = mix(nightColor, dayColor, sunInfluence);
+                        
+                        // Apply atmospheric scattering
+                        float alpha = atmosphereIntensity * 0.6;
+                        
+                        gl_FragColor = vec4(atmosphereColor, alpha);
+                    }
+                `,
+                blending: THREE.AdditiveBlending,
+                side: THREE.BackSide,
+                transparent: true,
+                depthWrite: false,
+            });
+            
+            atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+            scene.add(atmosphere);
+            
+            // Clouds Layer
+            const cloudGeometry = new THREE.SphereGeometry(planetRadius + 0.6, 128, 128);
+            
+            // Generate dynamic cloud patterns
+            const cloudVertices = cloudGeometry.attributes.position.array;
+            const cloudOpacity = [];
+            const cloudScale = 0.5;
+            const cloudThreshold = 0.1;
+            
+            for (let i = 0; i < cloudVertices.length; i += 3) {
+                const x = cloudVertices[i];
+                const y = cloudVertices[i + 1];
+                const z = cloudVertices[i + 2];
+                
+                const distance = Math.sqrt(x * x + y * y + z * z);
+                const nx = x / distance;
+                const ny = y / distance;
+                const nz = z / distance;
+                
+                // Generate cloud patterns with multiple noise layers
+                const cloudBaseNoise = simplex.noise3D(nx * cloudScale, ny * cloudScale, nz * cloudScale);
+                const cloudDetailNoise = simplex.noise3D(nx * cloudScale * 3, ny * cloudScale * 3, nz * cloudScale * 3) * 0.3;
+                let cloudPattern = cloudBaseNoise + cloudDetailNoise;
+                
+                // Latitude-based cloud distribution (more near equator, less at poles)
+                const latitude = Math.asin(ny / distance) / (Math.PI / 2);
+                const latitudeInfluence = 1.0 - Math.pow(Math.abs(latitude), 1.5) * 0.8;
+                
+                // Apply cloud elevation variation
+                cloudVertices[i] += nx * cloudPattern * 0.05;
+                cloudVertices[i + 1] += ny * cloudPattern * 0.05;
+                cloudVertices[i + 2] += nz * cloudPattern * 0.05;
+                
+                // Calculate cloud opacity based on noise and latitude
+                let opacity = (cloudPattern > cloudThreshold) ? 
+                            Math.min(1.0, (cloudPattern - cloudThreshold) * 2.5) * latitudeInfluence : 
+                            0.0;
+                
+                // Push opacity for each vertex
+                cloudOpacity.push(opacity, opacity, opacity);
+            }
+            
+            cloudGeometry.attributes.position.needsUpdate = true;
+            cloudGeometry.setAttribute('opacity', new THREE.Float32BufferAttribute(cloudOpacity, 3));
+            cloudGeometry.computeVertexNormals();
+            
+            // Custom shader for cloud material to handle varying opacity
+            const cloudMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 },
+                    cloudColor: { value: new THREE.Color(0xffffff) },
+                    sunDirection: { value: new THREE.Vector3(1, 0.5, 1).normalize() },
+                },
+                vertexShader: `
+                    attribute vec3 opacity;
+                    uniform float time;
+                    
+                    varying vec3 vNormal;
+                    varying float vOpacity;
+                    
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vOpacity = opacity.x; // Use x component for opacity
+                        
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 cloudColor;
+                    uniform vec3 sunDirection;
+                    
+                    varying vec3 vNormal;
+                    varying float vOpacity;
+                    
+                    void main() {
+                        // Add brighter highlights on sunlit side
+                        float sunlight = max(dot(vNormal, sunDirection), 0.0);
+                        vec3 litCloudColor = mix(cloudColor * 0.8, cloudColor * 1.2, sunlight);
+                        
+                        // Apply opacity based on vertex opacity attribute
+                        gl_FragColor = vec4(litCloudColor, vOpacity * 0.8);
+                    }
+                `,
+                transparent: true,
+                depthWrite: false,
+            });
+            
+            clouds = new THREE.Mesh(cloudGeometry, cloudMaterial);
+            scene.add(clouds);
+            
+            // Reset rotation and position
+            planet.rotation.set(0, 0, 0);
+            clouds.rotation.set(0, 0, 0);
+            
+            // Return the planet for chaining
+            return planet;
+        }
+        
+        // Lighting Setup
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        sunLight.position.set(50, 20, 50);
+        sunLight.castShadow = true;
+        scene.add(sunLight);
+        
+        // Ambient light for shadowed areas
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+        scene.add(ambientLight);
+        
+        // Stars background
+        const starCount = 2000;
+        const starGeometry = new THREE.BufferGeometry();
+        const starPositions = [];
+        const starColors = [];
+        
+        for (let i = 0; i < starCount; i++) {
+            // Random positions in a sphere
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(Math.random() * 2 - 1);
+            const radius = 80 + Math.random() * 50;
+            
+            const x = radius * Math.sin(phi) * Math.cos(theta);
+            const y = radius * Math.sin(phi) * Math.sin(theta);
+            const z = radius * Math.cos(phi);
+            
+            starPositions.push(x, y, z);
+            
+            // Randomize star colors (white to slightly blue/yellow)
+            const colorChoice = Math.random();
+            if (colorChoice > 0.9) {
+                starColors.push(0.9, 0.9, 1.0); // Blue-ish
+            } else if (colorChoice > 0.8) {
+                starColors.push(1.0, 0.9, 0.8); // Yellow-ish
+            } else {
+                starColors.push(1.0, 1.0, 1.0); // White
+            }
+        }
+        
+        starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+        starGeometry.setAttribute('color', new THREE.Float32BufferAttribute(starColors, 3));
+        
+        const starMaterial = new THREE.PointsMaterial({
+            size: 0.15,
+            vertexColors: true,
+            transparent: true,
+        });
+        
+        const stars = new THREE.Points(starGeometry, starMaterial);
+        scene.add(stars);
+        
+        // Camera Setup
+        camera.position.z = 15;
+        
+        // Camera and Interaction Controls
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let targetPlanetRotation = new THREE.Quaternion();
+        let currentPlanetRotation = new THREE.Quaternion();
+        let rotationSpeed = 0.0005;
+        let rotating = true;
+        
+        // Rotation control
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'ArrowUp') {
+                rotationSpeed = Math.min(rotationSpeed + 0.0001, 0.005);
+            } else if (event.key === 'ArrowDown') {
+                rotationSpeed = Math.max(rotationSpeed - 0.0001, 0);
+            } else if (event.key === ' ') {
+                rotating = !rotating;
+            }
+        });
+        
+        // Mouse drag controls
+        renderer.domElement.addEventListener('mousedown', (event) => {
+            isDragging = true;
+        });
+        
+        renderer.domElement.addEventListener('mousemove', (event) => {
+            if (isDragging) {
+                const deltaMove = {
+                    x: event.offsetX - previousMousePosition.x,
+                    y: event.offsetY - previousMousePosition.y
+                };
+                
+                const deltaRotationQuaternion = new THREE.Quaternion().setFromEuler(
+                    new THREE.Euler(
+                        THREE.MathUtils.degToRad(deltaMove.y * 0.5),
+                        THREE.MathUtils.degToRad(deltaMove.x * 0.5),
+                        0,
+                        'XYZ'
+                    )
+                );
+                
+                targetPlanetRotation.multiplyQuaternions(deltaRotationQuaternion, targetPlanetRotation);
+            }
+            
+            previousMousePosition = {
+                x: event.offsetX,
+                y: event.offsetY
+            };
+        });
+        
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        // Zoom controls
+        renderer.domElement.addEventListener('wheel', (event) => {
+            event.preventDefault();
+            const zoomSpeed = 0.05;
+            const direction = event.deltaY > 0 ? 1 : -1;
+            const zoomAmount = direction * zoomSpeed;
+            
+            camera.position.z = Math.max(7, Math.min(camera.position.z + zoomAmount, 20));
+        });
+        
+        // Reset camera button
+        const resetCameraButton = document.getElementById('resetCamera');
+        resetCameraButton.addEventListener('click', () => {
+            camera.position.set(0, 0, 15);
+            camera.lookAt(0, 0, 0);
+            targetPlanetRotation.set(0, 0, 0, 1);
+            rotationSpeed = 0.0005;
+            rotating = true;
+            
+            // Reset planet and cloud rotation
+            planet.rotation.set(0, 0, 0);
+            clouds.rotation.set(0, 0, 0);
+        });
+        
+        // Day/Night toggle
+        let isDaytime = true;
+        const toggleDayNightButton = document.getElementById('toggleDayNight');
+        toggleDayNightButton.addEventListener('click', () => {
+            isDaytime = !isDaytime;
+            
+            if (isDaytime) {
+                // Day time settings
+                sunLight.position.set(50, 20, 50);
+                sunLight.position.normalize();
+                sunLight.intensity = 1.2;
+                ambientLight.intensity = 0.6;
+                if (atmosphereMaterial) atmosphereMaterial.uniforms.sunPosition.value.copy(sunLight.position);
+            } else {
+                // Night time settings
+                sunLight.position.set(-50, -20, -50);
+                sunLight.position.normalize();
+                sunLight.intensity = 0.1;
+                ambientLight.intensity = 0.2;
+                if (atmosphereMaterial) atmosphereMaterial.uniforms.sunPosition.value.copy(sunLight.position);
+            }
+        });
+        
+        // Animation Loop
+        const clock = new THREE.Clock();
+
+        // Generate initial planet
+        generatePlanet();
+        
+        // Setup slider event listeners
+        function setupSliders() {
+            // Height scale slider
+            const heightScaleSlider = document.getElementById('heightScale');
+            const heightScaleValue = document.getElementById('heightScaleValue');
+            heightScaleSlider.addEventListener('input', function() {
+                heightScaleValue.textContent = this.value;
+            });
+            
+            // Noise scale slider
+            const noiseScaleSlider = document.getElementById('noiseScale');
+            const noiseScaleValue = document.getElementById('noiseScaleValue');
+            noiseScaleSlider.addEventListener('input', function() {
+                noiseScaleValue.textContent = this.value;
+            });
+            
+            // Mountain scale slider
+            const mountainScaleSlider = document.getElementById('mountainScale');
+            const mountainScaleValue = document.getElementById('mountainScaleValue');
+            mountainScaleSlider.addEventListener('input', function() {
+                mountainScaleValue.textContent = this.value;
+            });
+            
+            // Water level slider
+            const waterLevelSlider = document.getElementById('waterLevel');
+            const waterLevelValue = document.getElementById('waterLevelValue');
+            waterLevelSlider.addEventListener('input', function() {
+                waterLevelValue.textContent = this.value;
+            });
+            
+            // Regenerate button
+            const regenerateButton = document.getElementById('regeneratePlanet');
+            regenerateButton.addEventListener('click', function() {
+                generatePlanet();
+            });
+        }
+        
+        // Initialize the sliders
+        setupSliders();
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = clock.getDelta();
+            const elapsedTime = clock.getElapsedTime();
+            
+            // Update water shader time uniform for wave animation
+            if (water && water.material.uniforms) {
+                water.material.uniforms.time.value = elapsedTime;
+            }
+            
+            if (clouds && clouds.material.uniforms) {
+                clouds.material.uniforms.time.value = elapsedTime;
+            }
+            
+            // Update cloud position for slow movement
+            if (clouds) {
+                clouds.rotation.y += delta * 0.02;
+            }
+            
+            // Apply planet rotation if enabled
+            if (rotating && planet) {
+                planet.rotation.y += rotationSpeed;
+            }
+            
+            // Smooth camera interpolation
+            if (planet) {
+                currentPlanetRotation.slerp(targetPlanetRotation, 0.1);
+                planet.quaternion.copy(currentPlanetRotation);
+            }
+            
+            // Render the scene
+            renderer.render(scene, camera);
+        }
+        
+        animate();
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
